@@ -64,4 +64,75 @@ def fazer_cadastro(
     db.add(novo_usuario)
     db.commit()
 
-    return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/auth/login?cadastro=ok", status_code=302)
+
+# Fazer o login
+@router.post("/login")
+def fazer_login(
+    request: Request,
+    email: str = Form(...),
+    senha: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    
+    # Buscar user pelo email no db
+    usuario = db.query(Usuario).filter_by(email=email).first()
+
+    senha_correta = (
+        usuario is not None and verificar_senha(senha, usuario.senha_hash)
+    )
+
+    if not senha_correta:
+        return templates.TemplateResponse(
+            request,
+            "auth/login.html",
+            {
+                "request": request,
+                "erro": "E-mail ou senha incorretos"
+            }
+        )
+    
+    # Verificar se o user está ativo
+    if not usuario.ativo:
+        return templates.TemplateResponse(
+            request,
+            "auth/login.html",
+            {
+                "request": request,
+                "erro": "Usuário inativo. Contate o administrador"
+            }
+        )
+
+
+    # Gera o token JWT
+    # Dados do token (payload)
+    token_data = {
+        "sub": usuario.email,
+        "nome": usuario.nome,
+        "role": usuario.role,
+        "id": usuario.id
+    }
+
+    token = criar_token(token_data)
+
+    # Salvar o token no cookie
+    response = RedirectResponse(url="/", status_code=302)
+
+    # Define o cookie com o token JWT
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True, 
+        max_age=3600,  
+        samesite="lax"  
+    )
+
+    return response
+
+
+# Rota para logout
+@router.get("/logout")
+def sair():
+    response = RedirectResponse(url="/auth/login", status_code=302)
+    response.delete_cookie(key="access_token")
+    return response
